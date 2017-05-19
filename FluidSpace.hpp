@@ -24,9 +24,11 @@ public:
 class Lattices;
 
 class FluidSpace {
-    /* this class contains everything related to the physics of the
-       simulation.
-    */
+    /**
+      this class contains everything related to the physics of the
+      simulation and nothing related to the external library used
+      to create an interface with the user.
+    **/
     std::list<Lattices> latticesList; //holds the 2 grids
     int width;
     int height;

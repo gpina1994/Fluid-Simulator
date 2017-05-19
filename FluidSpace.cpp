@@ -12,7 +12,7 @@ FluidSpace::FluidSpace(int w, int h)
 {
     width = w;
     height = h;
-    int vectSize = (w+2)*(h+2);
+    int vectSize = (w+2)*(h+2); // +2's account for the one cell thick border around the grid
     densityVect.resize(vectSize);
     velocityVect.resize(vectSize);
 
@@ -21,6 +21,8 @@ FluidSpace::FluidSpace(int w, int h)
     //latticesVect.resize(2, lats);
     latticesList.push_front(lats);
     latticesList.push_front(lats);
+
+    // test code:
     std::cout << "nE lattice @ (100,100): " << latticesList.front().nE[(100+1)*(width+2)+(100+1)] << std::endl;
     // dummy functionality: initialize density array to 1's.
     for (int i=0; i<width+2; ++i) {
@@ -48,6 +50,10 @@ int FluidSpace::getHeight()
 
 void FluidSpace::incrDensity(int x, int y)
 {
+    /**
+      Increments the density at a square of points centered at (x,y) on
+      the cell grid
+    **/
     for (int i=-3; i<4; ++i) {
         for (int j=-3; j<4; ++j) {
             incrDensityPx(x+i,y+j);
@@ -59,6 +65,7 @@ void FluidSpace::incrDensityPx(int x, int y)
 {
     /// check if position is valid (should just be a function)
     /// also, this class isn't the appropriate place to check that
+    /// (since the screen may be resizable in future versions)
     if (x < 0 || width < x || y < 0 || height < y) {
         return;
     }
@@ -81,30 +88,40 @@ void FluidSpace::incrDensityPx(int x, int y)
 void FluidSpace::collide()
 {
     /// called through update()
+    /**
+      This method simulates interactions between particles within a cell: every
+      number stored in each lattice is brought closer to the computed equilibrium
+      density for each space in the lattice.
+    **/
     std::vector<float> equilibDensities;
     // update equilibrium densities
     latticesList.front().updateEqDensities();
     int ind = width+1;
+    int w = 1.6;
     for (int y=0; y<height; ++y) {
         ind += 2;
         for (int x=0; x<width; ++x) {
             ++ind;
             //equilibDensities = latticesList.front().getEquilibNumDensities(ind);
-            latticesList.front().n0[ind] = latticesList.front().n0[ind] + 1.8*(latticesList.front().eq0[ind] - latticesList.front().n0[ind]);
-            latticesList.front().nE[ind] = latticesList.front().nE[ind] + 1.8*(latticesList.front().eqE[ind] - latticesList.front().nE[ind]);
-            latticesList.front().nN[ind] = latticesList.front().nN[ind] + 1.8*(latticesList.front().eqN[ind] - latticesList.front().nN[ind]);
-            latticesList.front().nW[ind] = latticesList.front().nW[ind] + 1.8*(latticesList.front().eqW[ind] - latticesList.front().nW[ind]);
-            latticesList.front().nS[ind] = latticesList.front().nS[ind] + 1.8*(latticesList.front().eqS[ind] - latticesList.front().nS[ind]);
-            latticesList.front().nNE[ind] = latticesList.front().nNE[ind] + 1.8*(latticesList.front().eqNE[ind] - latticesList.front().nNE[ind]);
-            latticesList.front().nNW[ind] = latticesList.front().nNW[ind] + 1.8*(latticesList.front().eqNW[ind] - latticesList.front().nNW[ind]);
-            latticesList.front().nSW[ind] = latticesList.front().nSW[ind] + 1.8*(latticesList.front().eqSW[ind] - latticesList.front().nSW[ind]);
-            latticesList.front().nSE[ind] = latticesList.front().nSE[ind] + 1.8*(latticesList.front().eqSE[ind] - latticesList.front().nSE[ind]);
+            latticesList.front().n0[ind] = latticesList.front().n0[ind] + w*(latticesList.front().eq0[ind] - latticesList.front().n0[ind]);
+            latticesList.front().nE[ind] = latticesList.front().nE[ind] + w*(latticesList.front().eqE[ind] - latticesList.front().nE[ind]);
+            latticesList.front().nN[ind] = latticesList.front().nN[ind] + w*(latticesList.front().eqN[ind] - latticesList.front().nN[ind]);
+            latticesList.front().nW[ind] = latticesList.front().nW[ind] + w*(latticesList.front().eqW[ind] - latticesList.front().nW[ind]);
+            latticesList.front().nS[ind] = latticesList.front().nS[ind] + w*(latticesList.front().eqS[ind] - latticesList.front().nS[ind]);
+            latticesList.front().nNE[ind] = latticesList.front().nNE[ind] + w*(latticesList.front().eqNE[ind] - latticesList.front().nNE[ind]);
+            latticesList.front().nNW[ind] = latticesList.front().nNW[ind] + w*(latticesList.front().eqNW[ind] - latticesList.front().nNW[ind]);
+            latticesList.front().nSW[ind] = latticesList.front().nSW[ind] + w*(latticesList.front().eqSW[ind] - latticesList.front().nSW[ind]);
+            latticesList.front().nSE[ind] = latticesList.front().nSE[ind] + w*(latticesList.front().eqSE[ind] - latticesList.front().nSE[ind]);
         }
     }
 }
 
 void FluidSpace::stream()
 { /// should be called through update()
+    /**
+      This method moves the densities stored in each lattice towards the direction
+      they are moving (determined by what space they occupy in the lattice)
+    **/
     latticesList.back().resetToZeroes();
     streamE();
     streamN();
@@ -266,6 +283,10 @@ Lattices::Lattices(int w, int h)
 
 void Lattices::resetBorder()
 {
+    /**
+      Called every iteration to keep the outside border constant. The values are
+      equilibrium values for 0 velocity cells of density 1.
+    **/
     //set top edge
     for (int i=0; i<width+2; ++i) {
         n0[i] = (float)4/9;
@@ -318,6 +339,9 @@ void Lattices::resetBorder()
 
 void Lattices::resetToZeroes()
 {
+    /**
+      Resets each lattice to 0's for immediate overwriting by the stream methods.
+    **/
     for (int i=0; i<(width+2)*(height+2); ++i) {
         n0[i] = 0.0;
         nE[i] = 0.0;
@@ -400,6 +424,7 @@ inline std::vector<float>& Lattices::getVelocity(int index)
 
 std::vector<float> Lattices::getEquilibNumDensities(int index)
 {
+    /// no longer used--replaced by updateEqDensities
     //int index = (y+1)*(width+2)+(x+1); // unused
     float density = getDensity(index);
     v = getVelocity(index);
@@ -420,6 +445,11 @@ std::vector<float> Lattices::getEquilibNumDensities(int index)
 
 void Lattices::updateEqDensities()
 {
+    /**
+      Updates the equilibrium densities for every lattice based on the
+      computed velocity of each lattice
+    **/
+    // need to recheck whether this actually increases speed
     float nineHalfs = 9.0/2.0;
     float oneNinth = 1.0/9.0;
     float oneThirtySixth = 1.0/36.0;

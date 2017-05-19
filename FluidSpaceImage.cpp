@@ -17,7 +17,10 @@ FluidSpaceImage::FluidSpaceImage(int w, int h)
 
 sf::Image FluidSpaceImage::getDensityImage(FluidSpace& fs)
 {
-
+    /**
+    This function converts data from the FluidSpace object to an image
+    usable by SFML to update the screen.
+    **/
     int width = fs.getWidth();
     int height = fs.getHeight();
     densityVect = fs.getDensity();
@@ -42,7 +45,7 @@ sf::Image FluidSpaceImage::getDensityImage(FluidSpace& fs)
 
 inline sf::Color FluidSpaceImage::densityToColor(float density)
 {
-    // takes densities b/w 0 and 10 and returns a color
+    /// takes densities b/w 0 and infinity and returns a color
     // float g = 16*sqrt(density*25.5);
     //float g = (255.0*density)/(density+5.0);
     return sf::Color(0,(int)(255.0*density)/(density+40.0),0,255);

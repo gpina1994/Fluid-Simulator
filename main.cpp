@@ -29,6 +29,7 @@ void handleMouse(const sf::RenderWindow&, FluidSpace& fs);
 
 int main()
 {
+    /// Initialize objects
     sf::RenderWindow window(sf::VideoMode(400,400), "SFML works!", sf::Style::Titlebar|sf::Style::Close);
     FluidSpaceImage fsi(400,400);
     sf::Image output;
@@ -38,14 +39,14 @@ int main()
     FluidSpace fs(400,400);
     sf::Clock clk;
     sf::Clock updateClk;
-    int updateCount = 0;
     int iterations = 0;
 
+    /// "Game loop"
     while (window.isOpen())
     {
         ++iterations;
         sf::Event event;
-        bool mouseIsPressed = false;
+        bool mouseIsPressed = false; // unused
         bool enterIsPressed = false; // unused
         bool updateScreen = false;
         while (window.pollEvent(event))
@@ -109,6 +110,10 @@ int main()
 
 void handleMouse(const sf::RenderWindow& w, FluidSpace& fs)
 {
+    /**
+    This function updates data on the density field through the FluidSpace object
+    according to where the user has clicked.
+    **/
     sf::Vector2i pos = sf::Mouse::getPosition(w);
     sf::Vector2u wSize = w.getSize();
     //if the mouse button is pressed in the window, draw where it is pressed
