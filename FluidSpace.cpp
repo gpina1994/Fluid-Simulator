@@ -3,6 +3,21 @@
 #include <time.h> // seeding rand
 #include <math.h> // isnan()
 
+/**
+
+Configuration details
+    the fluid kinematic viscosity is proportional to the lattice speed (Lattices::latticeSpeed)
+                                              and to 2*relaxation - 1
+**/
+
+namespace worldParams
+{
+    const double latticeSpeed = 1.0/sqrt(3); /// apparently the lattice speed *has* to be 1/sqrt(3) for D2Q9 lattices
+                                            /// apparently this is also sqrt(3 * gas constant * temperature)
+                                            /// but it's 1/sqrt(3) because our units are special ???
+    const double relaxation = 0.6; /// relaxation of 1.0 gives a viscosity of 1/6; relaxation should be between 0.5 and inf
+}
+
 FluidSpace::FluidSpace()
 {
     // nothing to do here
@@ -18,13 +33,12 @@ FluidSpace::FluidSpace(int w, int h)
 
     // initialize lattices
     Lattices lats(w, h);
-    //latticesVect.resize(2, lats);
     latticesList.push_front(lats);
     latticesList.push_front(lats);
 
     // test code:
     std::cout << "nE lattice @ (100,100): " << latticesList.front().nE[(100+1)*(width+2)+(100+1)] << std::endl;
-    // dummy functionality: initialize density array to 1's.
+
     for (int i=0; i<width+2; ++i) {
         for (int j=0; j<height+2; ++j) {
             densityVect[i*(height+2) + j] = 1.0;
@@ -32,10 +46,9 @@ FluidSpace::FluidSpace(int w, int h)
     }
 }
 
-std::vector<float>& FluidSpace::getDensity()
+std::vector<double>& FluidSpace::getDensity()
 {
     return latticesList.front().updateDensities();
-    //return latticesList.front().densities;
 }
 
 int FluidSpace::getWidth()
@@ -54,8 +67,12 @@ void FluidSpace::incrDensity(int x, int y)
       Increments the density at a square of points centered at (x,y) on
       the cell grid
     **/
-    for (int i=-3; i<4; ++i) {
-        for (int j=-3; j<4; ++j) {
+    //incrDensityPx(x, y);
+
+    double radius = 4;
+    for (int i=-4; i<5; ++i) {
+        for (int j=-4; j<5; ++j) {
+            if (i*i + j*j > radius*radius) continue;
             incrDensityPx(x+i,y+j);
         }
     }
@@ -66,23 +83,101 @@ void FluidSpace::incrDensityPx(int x, int y)
     /// check if position is valid (should just be a function)
     /// also, this class isn't the appropriate place to check that
     /// (since the screen may be resizable in future versions)
-    if (x < 0 || width < x || y < 0 || height < y) {
+    if (!isValidCoords(x, y)) {
         return;
     }
-    int index = (y+1)*(width+2)+(x+1);
+    int index = xyToIndex(x, y);
     /// get original density
-    float orig = latticesList.front().getDensity(index);
-    //float incrAmt = (10.0 - orig)*0.60;
-    float incrRatio = (orig+60)/orig; /// increment density by 60
-    latticesList.front().n0[index] *= incrRatio;
-    latticesList.front().nE[index] *= incrRatio;
-    latticesList.front().nN[index] *= incrRatio;
-    latticesList.front().nW[index] *= incrRatio;
-    latticesList.front().nS[index] *= incrRatio;
-    latticesList.front().nNE[index] *= incrRatio;
-    latticesList.front().nNW[index] *= incrRatio;
-    latticesList.front().nSW[index] *= incrRatio;
-    latticesList.front().nSE[index] *= incrRatio;
+    //double incrAmt = (10.0 - orig)*0.60;
+
+    double incrAmt = .05;
+    latticesList.front().n0[index] += (4.0/9.0)*incrAmt;
+    latticesList.front().nE[index] += (1.0/9.0)*incrAmt;
+    latticesList.front().nN[index] += (1.0/9.0)*incrAmt;
+    latticesList.front().nW[index] += (1.0/9.0)*incrAmt;
+    latticesList.front().nS[index] += (1.0/9.0)*incrAmt;
+    latticesList.front().nNE[index] += (1.0/36.0)*incrAmt;
+    latticesList.front().nNW[index] += (1.0/36.0)*incrAmt;
+    latticesList.front().nSW[index] += (1.0/36.0)*incrAmt;
+    latticesList.front().nSE[index] += (1.0/36.0)*incrAmt;
+}
+
+void FluidSpace::applyWind(int x, int y, double directionRad)
+{
+    //applyWindPx(x, y, directionRad);
+    double radius = 6.0;
+    for (int i=-6; i<7; ++i) {
+        for (int j=-6; j<7; ++j) {
+            if (i*i + j*j > radius*radius) continue;
+            applyWindPx(x+i, y+j, directionRad);
+        }
+    }
+}
+
+void FluidSpace::applyWindPx(int x, int y, double directionRad)
+{
+    if (!isValidCoords(x, y)) {
+        return;
+    }
+    const int index = xyToIndex(x, y);
+    Lattices& currentLattice = latticesList.front();
+    const double density = currentLattice.getDensity(index);
+
+    /// form vector in direction 'directionRad' of magnitude 'latticeSpeed' (speed of sound)
+    double windX = cos(directionRad)*worldParams::latticeSpeed;
+    double windY = sin(directionRad)*worldParams::latticeSpeed;
+
+//    std::cout << "windX: " << windX << std::endl
+//        << "windY: " << windY << std::endl;
+
+    const double vDotv = windX * windX + windY * windY;
+
+
+//    std::cout << "vDotv: " << vDotv << std::endl;
+
+    const double latticeSpeed = worldParams::latticeSpeed;
+    const double latticeSpeed2 = latticeSpeed * latticeSpeed;
+    const double latticeSpeed4 = latticeSpeed2 * latticeSpeed2;
+
+//    std::cout << "initial density: " << density << std::endl;
+//    std::cout << "initial lattice:" << std::endl;
+//    printLattice(index);
+
+    currentLattice.n0[index] = density * 4.0/9.0 * (1 - (1/2.0)*vDotv / latticeSpeed2);
+    currentLattice.nE[index] = density * (1.0/9.0) * (1 + windX/latticeSpeed2 + (1/2.0)*(windX*windX)/latticeSpeed4 - (1/2.0)*vDotv / latticeSpeed2);
+    currentLattice.nN[index] = density * (1.0/9.0) * (1 + (0-windY)/latticeSpeed2 + (1/2.0)*(windY*windY)/latticeSpeed4 - (1/2.0)*vDotv / latticeSpeed2);
+    currentLattice.nW[index] = density * (1.0/9.0) * (1 + (0-windX)/latticeSpeed2 + (1/2.0)*(windX*windX)/latticeSpeed4 - (1/2.0)*vDotv / latticeSpeed2);
+    currentLattice.nS[index] = density * (1.0/9.0) * (1 + windY/latticeSpeed2 + (1/2.0)*(windY*windY)/latticeSpeed4 - (1/2.0)*vDotv / latticeSpeed2);
+    currentLattice.nNE[index] = density * (1.0/36.0) * (1 + (windX-windY)/latticeSpeed2 + (1/2.0)*(windX-windY)*(windX-windY)/latticeSpeed4 - (1/2.0)*vDotv / latticeSpeed2);
+    currentLattice.nNW[index] = density * (1.0/36.0) * (1 + (0-windX-windY)/latticeSpeed2 + (1/2.0)*(0-windX-windY)*(0-windX-windY)/latticeSpeed4 - (1/2.0)*vDotv / latticeSpeed2);
+    currentLattice.nSW[index] = density * (1.0/36.0) * (1 + (windY-windX)/latticeSpeed2 + (1/2.0)*(windY-windX)*(windY-windX)/latticeSpeed4 - (1/2.0)*vDotv / latticeSpeed2);
+    currentLattice.nSE[index] = density * (1.0/36.0) * (1 + (windX+windY)/latticeSpeed2 + (1/2.0)*(windX+windY)*(windX+windY)/latticeSpeed4 - (1/2.0)*vDotv / latticeSpeed2);
+
+//    std::cout << "final density: " << currentLattice.getDensity(index) << std::endl;
+//    std::cout << "final lattice:" << std::endl;
+//    printLattice(index);
+}
+
+bool FluidSpace::isValidCoords(int x, int y)
+{
+    return !(x < 0 || width < x || y < 0 || height < y);
+}
+
+void FluidSpace::update()
+{
+    /// step 1: stream
+    stream();
+
+    //std::cout << "after streaming: ";
+    //printTotalMass();
+
+    ///step 2: collide
+    collide();
+
+    //std::cout << "after collision: ";
+    //printTotalMass();
+
+    return;
 }
 
 void FluidSpace::collide()
@@ -93,27 +188,68 @@ void FluidSpace::collide()
       number stored in each lattice is brought closer to the computed equilibrium
       density for each space in the lattice.
     **/
-    std::vector<float> equilibDensities;
+
     // update equilibrium densities
     latticesList.front().updateEqDensities();
+
+    Lattices& currentLatticeGrid = latticesList.front();
     int ind = width+1;
-    int w = 1.6;
+    const double w = 1.0 / worldParams::relaxation;
     for (int y=0; y<height; ++y) {
         ind += 2;
         for (int x=0; x<width; ++x) {
             ++ind;
-            //equilibDensities = latticesList.front().getEquilibNumDensities(ind);
-            latticesList.front().n0[ind] = latticesList.front().n0[ind] + w*(latticesList.front().eq0[ind] - latticesList.front().n0[ind]);
-            latticesList.front().nE[ind] = latticesList.front().nE[ind] + w*(latticesList.front().eqE[ind] - latticesList.front().nE[ind]);
-            latticesList.front().nN[ind] = latticesList.front().nN[ind] + w*(latticesList.front().eqN[ind] - latticesList.front().nN[ind]);
-            latticesList.front().nW[ind] = latticesList.front().nW[ind] + w*(latticesList.front().eqW[ind] - latticesList.front().nW[ind]);
-            latticesList.front().nS[ind] = latticesList.front().nS[ind] + w*(latticesList.front().eqS[ind] - latticesList.front().nS[ind]);
-            latticesList.front().nNE[ind] = latticesList.front().nNE[ind] + w*(latticesList.front().eqNE[ind] - latticesList.front().nNE[ind]);
-            latticesList.front().nNW[ind] = latticesList.front().nNW[ind] + w*(latticesList.front().eqNW[ind] - latticesList.front().nNW[ind]);
-            latticesList.front().nSW[ind] = latticesList.front().nSW[ind] + w*(latticesList.front().eqSW[ind] - latticesList.front().nSW[ind]);
-            latticesList.front().nSE[ind] = latticesList.front().nSE[ind] + w*(latticesList.front().eqSE[ind] - latticesList.front().nSE[ind]);
+
+            double density = currentLatticeGrid.getDensity(ind);
+
+            if (density > 2)
+            {
+                int wow = 0xfaded;
+            }
+
+            if (ind == -1)
+            {
+                std::cout << "lattice before collisions:" << std::endl;
+                currentLatticeGrid.print(ind);
+            }
+
+            //currentLatticeGrid.n0[ind] = (1.0 - w)*currentLatticeGrid.n0[ind] + w*currentLatticeGrid.eq0[ind];
+            currentLatticeGrid.n0[ind] = currentLatticeGrid.n0[ind] + (1/worldParams::relaxation)*(currentLatticeGrid.eq0[ind] - currentLatticeGrid.n0[ind]);
+            currentLatticeGrid.nE[ind] = (1.0 - w)*currentLatticeGrid.nE[ind] + w*currentLatticeGrid.eqE[ind];
+            currentLatticeGrid.nN[ind] = (1.0 - w)*currentLatticeGrid.nN[ind] + w*currentLatticeGrid.eqN[ind];
+            currentLatticeGrid.nW[ind] = (1.0 - w)*currentLatticeGrid.nW[ind] + w*currentLatticeGrid.eqW[ind];
+            currentLatticeGrid.nS[ind] = (1.0 - w)*currentLatticeGrid.nS[ind] + w*currentLatticeGrid.eqS[ind];
+            currentLatticeGrid.nNE[ind] = (1.0 - w)*currentLatticeGrid.nNE[ind] + w*currentLatticeGrid.eqNE[ind];
+            currentLatticeGrid.nNW[ind] = (1.0 - w)*currentLatticeGrid.nNW[ind] + w*currentLatticeGrid.eqNW[ind];
+            currentLatticeGrid.nSW[ind] = (1.0 - w)*currentLatticeGrid.nSW[ind] + w*currentLatticeGrid.eqSW[ind];
+            currentLatticeGrid.nSE[ind] = (1.0 - w)*currentLatticeGrid.nSE[ind] + w*currentLatticeGrid.eqSE[ind];
+
+            if (ind == -1)
+            {
+                std::cout << "equilibrium lattice:" << std::endl;
+                currentLatticeGrid.printEq(ind);
+                std::cout << "lattice after collisions:" << std::endl;
+                currentLatticeGrid.print(ind);
+            }
         }
     }
+}
+
+void FluidSpace::printTotalMass()
+{
+    double totalMass = 0.0;
+    Lattices& currentLatticeGrid = latticesList.front();
+
+    int ind = width+1;
+    for (int y=0; y<height; ++y) {
+        ind += 2;
+        for (int x=0; x<width; ++x) {
+            ++ind;
+            totalMass += currentLatticeGrid.getDensity(ind);
+        }
+    }
+
+    std::cout << "total mass: " << totalMass << std::endl;
 }
 
 void FluidSpace::stream()
@@ -122,7 +258,7 @@ void FluidSpace::stream()
       This method moves the densities stored in each lattice towards the direction
       they are moving (determined by what space they occupy in the lattice)
     **/
-    latticesList.back().resetToZeroes();
+
     streamE();
     streamN();
     streamW();
@@ -132,7 +268,7 @@ void FluidSpace::stream()
     streamSW();
     streamSE();
     stream0();
-    //latticesList.back() = latticesList.front();
+
     latticesList.back().resetBorder();
     latticesList.reverse();
     return;
@@ -235,36 +371,36 @@ void FluidSpace::stream0()
     }
 }
 
-void FluidSpace::update()
-{
-    /// step 1: stream
-    stream();
-
-    ///step 2: collide
-    collide();
-
-    return;
-}
-
 void FluidSpace::printLattice(int x, int y)
 {
     latticesList.front().print(x,y);
 }
 
+void FluidSpace::printLattice(int index)
+{
+    latticesList.front().print(index);
+}
+
+inline int FluidSpace::xyToIndex(int x, int y)
+{
+    return (y+1)*(width+2)+(x+1);
+}
+
 Lattices::Lattices(int w, int h)
 {
+    latticeSpeed = worldParams::latticeSpeed;
     width = w;
     height = h;
     int vectSize = (w+2)*(h+2); // Grid is buffered on each edge by 1 lattice
-    n0.resize(vectSize, (float)4/9);
-    nE.resize(vectSize, (float)1/9);
-    nN.resize(vectSize, (float)1/9);
-    nW.resize(vectSize, (float)1/9);
-    nS.resize(vectSize, (float)1/9);
-    nNE.resize(vectSize, (float)1/36);
-    nNW.resize(vectSize, (float)1/36);
-    nSW.resize(vectSize, (float)1/36);
-    nSE.resize(vectSize, (float)1/36);
+    n0.resize(vectSize, (double)4/9);
+    nE.resize(vectSize, (double)1/9);
+    nN.resize(vectSize, (double)1/9);
+    nW.resize(vectSize, (double)1/9);
+    nS.resize(vectSize, (double)1/9);
+    nNE.resize(vectSize, (double)1/36);
+    nNW.resize(vectSize, (double)1/36);
+    nSW.resize(vectSize, (double)1/36);
+    nSE.resize(vectSize, (double)1/36);
 
     eq0.resize(vectSize);
     eqE.resize(vectSize);
@@ -275,6 +411,18 @@ Lattices::Lattices(int w, int h)
     eqNW.resize(vectSize);
     eqSW.resize(vectSize);
     eqSE.resize(vectSize);
+
+
+    int index = (150+1)*(width+2)+(150+1);
+    n0[index] = 400/9.;
+    nE[index] = 100/9.;
+    nN[index] = 100/9.;
+    nW[index] = 100/9.;
+    nS[index] = 100/9.;
+    nNE[index] = 100/36.;
+    nNW[index] = 100/36.;
+    nSW[index] = 100/36.;
+    nSE[index] = 100/36.;
 
     eqNumD.resize(9);
     v.resize(2);
@@ -289,51 +437,51 @@ void Lattices::resetBorder()
     **/
     //set top edge
     for (int i=0; i<width+2; ++i) {
-        n0[i] = (float)4/9;
-        nE[i] = (float)1/9;
-        nN[i] = (float)1/9;
-        nW[i] = (float)1/9;
-        nS[i] = (float)1/9;
-        nNE[i] = (float)1/36;
-        nNW[i] = (float)1/36;
-        nSW[i] = (float)1/36;
-        nSE[i] = (float)1/36;
+        n0[i] = (double)4/9;
+        nE[i] = (double)1/9;
+        nN[i] = (double)1/9;
+        nW[i] = (double)1/9;
+        nS[i] = (double)1/9;
+        nNE[i] = (double)1/36;
+        nNW[i] = (double)1/36;
+        nSW[i] = (double)1/36;
+        nSE[i] = (double)1/36;
     }
     //set left edge
     for (int i=0; i<(width+2)*(height+2); i += width+2) {
-        n0[i] = (float)4/9;
-        nE[i] = (float)1/9;
-        nN[i] = (float)1/9;
-        nW[i] = (float)1/9;
-        nS[i] = (float)1/9;
-        nNE[i] = (float)1/36;
-        nNW[i] = (float)1/36;
-        nSW[i] = (float)1/36;
-        nSE[i] = (float)1/36;
+        n0[i] = (double)4/9;
+        nE[i] = (double)1/9;
+        nN[i] = (double)1/9;
+        nW[i] = (double)1/9;
+        nS[i] = (double)1/9;
+        nNE[i] = (double)1/36;
+        nNW[i] = (double)1/36;
+        nSW[i] = (double)1/36;
+        nSE[i] = (double)1/36;
     }
     //set right edge
     for (int i=width+1; i<(width+2)*(height+2); i += width+2) {
-        n0[i] = (float)4/9;
-        nE[i] = (float)1/9;
-        nN[i] = (float)1/9;
-        nW[i] = (float)1/9;
-        nS[i] = (float)1/9;
-        nNE[i] = (float)1/36;
-        nNW[i] = (float)1/36;
-        nSW[i] = (float)1/36;
-        nSE[i] = (float)1/36;
+        n0[i] = (double)4/9;
+        nE[i] = (double)1/9;
+        nN[i] = (double)1/9;
+        nW[i] = (double)1/9;
+        nS[i] = (double)1/9;
+        nNE[i] = (double)1/36;
+        nNW[i] = (double)1/36;
+        nSW[i] = (double)1/36;
+        nSE[i] = (double)1/36;
     }
     //set bottom edge
     for (int i=(width+2)*(height+1); i<(width+2)*(height+2); ++i) {
-        n0[i] = (float)4/9;
-        nE[i] = (float)1/9;
-        nN[i] = (float)1/9;
-        nW[i] = (float)1/9;
-        nS[i] = (float)1/9;
-        nNE[i] = (float)1/36;
-        nNW[i] = (float)1/36;
-        nSW[i] = (float)1/36;
-        nSE[i] = (float)1/36;
+        n0[i] = (double)4/9;
+        nE[i] = (double)1/9;
+        nN[i] = (double)1/9;
+        nW[i] = (double)1/9;
+        nS[i] = (double)1/9;
+        nNE[i] = (double)1/36;
+        nNW[i] = (double)1/36;
+        nSW[i] = (double)1/36;
+        nSE[i] = (double)1/36;
     }
 }
 
@@ -355,92 +503,66 @@ void Lattices::resetToZeroes()
     }
 }
 
-inline float Lattices::getDensity(int x, int y)
+inline double Lattices::getDensity(int x, int y)
 {
     int index = (y+1)*(width+2)+(x+1);
-    float density = 0.0;
-    density += n0[index];
-    density += nE[index];
-    density += nN[index];
-    density += nW[index];
-    density += nS[index];
-    density += nNE[index];
-    density += nNW[index];
-    density += nSW[index];
-    density += nSE[index];
-    return density;
+    return getDensity(index);
 }
 
-inline float Lattices::getDensity(int index)
+inline double Lattices::getDensity(int index)
 {
     return n0[index] + nE[index] + nN[index] + nW[index] + nS[index] +\
            nNE[index] + nNW[index] + nSW[index] + nSE[index];
 }
 
-/*
-void Lattices::updateDensities()
+std::vector<double>& Lattices::updateDensities()
 {
     int ind;
     for (int i=0; i<height; ++i) {
         for (int j=0; j<width; ++j) {
             ind = (i+1)*(width+2)+(j+1);
-            densities[i*width+j] = n0[ind] + nE[ind] + nN[ind] + nW[ind] + nS[ind] \
-                                    + nNE[ind] + nNW[ind] + nSW[ind] + nSE[ind];
-        }
-    }
-}
-*/
-
-std::vector<float>& Lattices::updateDensities()
-{
-    int ind;
-    for (int i=0; i<height; ++i) {
-        for (int j=0; j<width; ++j) {
-            ind = (i+1)*(width+2)+(j+1);
-            densities[i*width+j] = n0[ind] + nE[ind] + nN[ind] + nW[ind] + nS[ind] \
-                                    + nNE[ind] + nNW[ind] + nSW[ind] + nSE[ind];
+            densities[i*width+j] = getDensity(ind);
         }
     }
     return densities;
 }
 
-std::vector<float>& Lattices::getVelocity(int x, int y)
+std::vector<double>& Lattices::getVelocity(int x, int y)
 {
-    float vx;
-    float vy;
     int index = (y+1)*(width+2)+(x+1);
     return getVelocity(index);
 }
 
-inline std::vector<float>& Lattices::getVelocity(int index)
+inline std::vector<double>& Lattices::getVelocity(int index)
 {
-    v[0] = (nE[index] - nW[index] + 0.7071*(nNE[index] + nSE[index]) - 0.7071*(nNW[index] + nSW[index]));
-    v[1] = (nS[index] - nN[index] + 0.7071*(nSW[index] + nSE[index]) - 0.7071*(nNE[index] + nNW[index]));
-    // cap the velocity at 1/12
-    v[0] = v[0]/(6*fabs(v[0])+2);
-    v[1] = v[1]/(6*fabs(v[1])+2);
+    double density = getDensity(index);
+
+    if (density != 0.0)
+    {
+//        v[0] = (1/9.)*(nE[index] - nW[index]) + (1/36.)*(nNE[index] + nSE[index] - nNW[index] - nSW[index]);
+//        v[1] = (1/9.)*(nS[index] - nN[index]) + (1/36.)*(nSW[index] + nSE[index] - nNE[index] - nNW[index]);
+        v[0] = (nE[index] - nW[index]) + (nNE[index] + nSE[index] - nNW[index] - nSW[index]);
+        v[1] = (nS[index] - nN[index]) + (nSW[index] + nSE[index] - nNE[index] - nNW[index]);
+        v[0] /= density;
+        v[1] /= density;
+
+        /// capping to the lattice speed here is contrary to the algorithm (and therefore probably wrong from the standpoint of
+        /// simulation accuracy), but it is being done for stability and also makes *some* sense because the velocity of the
+        /// fluid *cant* exceed the speed of sound (1/sqrt(3)); without this, the max calculable velocity is 1.
+        const double speed2 = v[0]*v[0] + v[1]*v[1];
+        const double latticeSpeed2 = worldParams::latticeSpeed*worldParams::latticeSpeed;
+        if (speed2 > latticeSpeed2)
+        {
+            v[0] *= worldParams::latticeSpeed / sqrt(speed2);
+            v[1] *= worldParams::latticeSpeed / sqrt(speed2);
+        }
+    }
+    else
+    {
+        v[0] = 0.0;
+        v[1] = 0.0;
+    }
     return v;
-}
-
-std::vector<float> Lattices::getEquilibNumDensities(int index)
-{
-    /// no longer used--replaced by updateEqDensities
-    //int index = (y+1)*(width+2)+(x+1); // unused
-    float density = getDensity(index);
-    v = getVelocity(index);
-    float vDotv = v[0]*v[0]+v[1]*v[1]; // v dotted with itself
-
-    eqNumD[0] = density * 4.0/9.0 * (1 - (3.0/2.0)*vDotv);
-    eqNumD[1] = density * 1.0/9.0 * (1 + 3*v[0] + (9.0/2.0)*v[0]*v[0] - (3.0/2.0)*vDotv);
-    eqNumD[2] = density * 1.0/9.0 * (1 + 3*(0-v[1]) + (9.0/2.0)*v[1]*v[1] - (3.0/2.0)*vDotv);
-    eqNumD[3] = density * 1.0/9.0 * (1 + 3*(0-v[0]) + (9.0/2.0)*v[0]*v[0] - (3.0/2.0)*vDotv);
-    eqNumD[4] = density * 1.0/9.0 * (1 + 3*v[1] + (9.0/2.0)*v[1]*v[1] - (3.0/2.0)*vDotv);
-    eqNumD[5] = density * 1.0/36.0 * (1 + 3*(v[0]-v[1]) + (9.0/2.0)*(v[0]*v[0]-v[1]*v[1]) - (3.0/2.0)*vDotv);
-    eqNumD[6] = density * 1.0/36.0 * (1 + 3*(0-v[0]-v[1]) + (9.0/2.0)*(0-v[0]-v[1])*(0-v[0]-v[1]) - (3.0/2.0)*vDotv);
-    eqNumD[7] = density * 1.0/36.0 * (1 + 3*(v[1]-v[0]) + (9.0/2.0)*(v[1]*v[1]-v[0]*v[0]) - (3.0/2.0)*vDotv);
-    eqNumD[8] = density * 1.0/36.0 * (1 + 3*(v[0]+v[1]) + (9.0/2.0)*(v[0]+v[1])*(v[0]-v[1]) - (3.0/2.0)*vDotv);
-
-    return eqNumD;
 }
 
 void Lattices::updateEqDensities()
@@ -449,32 +571,31 @@ void Lattices::updateEqDensities()
       Updates the equilibrium densities for every lattice based on the
       computed velocity of each lattice
     **/
-    // need to recheck whether this actually increases speed
-    float nineHalfs = 9.0/2.0;
-    float oneNinth = 1.0/9.0;
-    float oneThirtySixth = 1.0/36.0;
-    float density, vDotv, vDotvTimes3over2, vx2, vy2;
+    const double latticeSpeed2 = latticeSpeed * latticeSpeed;
+    const double latticeSpeed4 = latticeSpeed2 * latticeSpeed2;
     int index = width+1;
     for (int i=0; i<height; ++i) {
         index += 2;
         for (int j=0; j<width; ++j) {
             ++index;
-            density = getDensity(index);
-            v = getVelocity(index);
-            vDotv = v[0]*v[0]+v[1]*v[1]; // v dotted with itself
-            vDotvTimes3over2 = vDotv * 3.0/2.0;
-            vx2 = v[0]*v[0];
-            vy2 = v[1]*v[1];
 
-            eq0[index] = density * 4.0/9.0 * (1 - vDotvTimes3over2);
-            eqE[index] = density * oneNinth * (1 + 3*v[0] + (nineHalfs)*vx2 - vDotvTimes3over2);
-            eqN[index] = density * oneNinth * (1 + 3*(0-v[1]) + (nineHalfs)*vy2 - vDotvTimes3over2);
-            eqW[index] = density * oneNinth * (1 + 3*(0-v[0]) + (nineHalfs)*vx2 - vDotvTimes3over2);
-            eqS[index] = density * oneNinth * (1 + 3*v[1] + (nineHalfs)*vy2 - vDotvTimes3over2);
-            eqNE[index] = density * oneThirtySixth * (1 + 3*(v[0]-v[1]) + (nineHalfs)*(v[0]-v[1])*(v[0]-v[1]) - vDotvTimes3over2);
-            eqNW[index] = density * oneThirtySixth * (1 + 3*(0-v[0]-v[1]) + (nineHalfs)*(0-v[0]-v[1])*(0-v[0]-v[1]) - vDotvTimes3over2);
-            eqSW[index] = density * oneThirtySixth * (1 + 3*(v[1]-v[0]) + (nineHalfs)*(v[1]-v[0])*(v[1]-v[0]) - vDotvTimes3over2);
-            eqSE[index] = density * oneThirtySixth * (1 + 3*(v[0]+v[1]) + (nineHalfs)*(v[0]+v[1])*(v[0]+v[1]) - vDotvTimes3over2);
+            const double density = getDensity(index);
+            v = getVelocity(index);
+            const double vx = v[0];
+            const double vy = v[1];
+            const double vDotv = vx*vx + vy*vy; // v dotted with itself
+            const double vx2 = vx*vx;
+            const double vy2 = vy*vy;
+
+            eq0[index]  = density*4/9. *(1                                                                        -  (1/2.)*vDotv/latticeSpeed2);
+            eqE[index]  = density*1/9. *(1  +  vx      /latticeSpeed2  +  (1/2.)*vx2              /latticeSpeed4  -  (1/2.)*vDotv/latticeSpeed2);
+            eqN[index]  = density*1/9. *(1  +  -vy     /latticeSpeed2  +  (1/2.)*vy2              /latticeSpeed4  -  (1/2.)*vDotv/latticeSpeed2);
+            eqW[index]  = density*1/9. *(1  +  -vx     /latticeSpeed2  +  (1/2.)*vx2              /latticeSpeed4  -  (1/2.)*vDotv/latticeSpeed2);
+            eqS[index]  = density*1/9. *(1  +  vy      /latticeSpeed2  +  (1/2.)*vy2              /latticeSpeed4  -  (1/2.)*vDotv/latticeSpeed2);
+            eqNE[index] = density*1/36.*(1  +  (vx-vy) /latticeSpeed2  +  (1/2.)*(vx-vy)*(vx-vy)  /latticeSpeed4  -  (1/2.)*vDotv/latticeSpeed2);
+            eqNW[index] = density*1/36.*(1  +  (-vx-vy)/latticeSpeed2  +  (1/2.)*(-vx-vy)*(-vx-vy)/latticeSpeed4  -  (1/2.)*vDotv/latticeSpeed2);
+            eqSW[index] = density*1/36.*(1  +  (vy-vx) /latticeSpeed2  +  (1/2.)*(vy-vx)*(vy-vx)  /latticeSpeed4  -  (1/2.)*vDotv/latticeSpeed2);
+            eqSE[index] = density*1/36.*(1  +  (vx+vy) /latticeSpeed2  +  (1/2.)*(vx+vy)*(vx+vy)  /latticeSpeed4  -  (1/2.)*vDotv/latticeSpeed2);
         }
     }
 }
@@ -482,12 +603,29 @@ void Lattices::updateEqDensities()
 void Lattices::print(int x, int y)
 {
     int index = (y+1)*(width+2)+(x+1);
-    std::vector<float> v = getVelocity(x,y);
+    print(index);
+}
+
+void Lattices::print(int index)
+{
+    std::vector<double> v = getVelocity(index);
     std::cout << "index:" << index << std::endl;
     std::cout << "Lattice:" << std::endl
               << nNW[index] << "," << nN[index] << "," << nNE[index] << std::endl
               << nW[index]  << "," << n0[index] << "," << nE[index]  << std::endl
               << nSW[index] << "," << nS[index] << "," << nSE[index] << std::endl
               << "Velocity: [" << v[0] << ", " << v[1] << "]" << std::endl
-              << "Density: " << getDensity(x,y) << std::endl;
+              << "Density: " << getDensity(index) << std::endl;
+}
+
+void Lattices::printEq(int index)
+{
+    std::vector<double> v = getVelocity(index);
+    std::cout << "index:" << index << std::endl;
+    std::cout << "Lattice:" << std::endl
+              << eqNW[index] << "," << eqN[index] << "," << eqNE[index] << std::endl
+              << eqW[index]  << "," << eq0[index] << "," << eqE[index]  << std::endl
+              << eqSW[index] << "," << eqS[index] << "," << eqSE[index] << std::endl
+              << "Velocity: [" << v[0] << ", " << v[1] << "]" << std::endl
+              << "Density: " << getDensity(index) << std::endl;
 }

@@ -11,9 +11,9 @@ class FluidSpaceImage {
    to image data in the form of sf::Image's
 */
     //FluidSpace& fs;
-    sf::Color densityToColor(float density);
+    sf::Color densityToColor(double density);
     std::vector<sf::Uint8> img;
-    std::vector<float> densityVect;
+    std::vector<double> densityVect;
 public:
     FluidSpaceImage() {};
     FluidSpaceImage(int w, int h);

@@ -43,12 +43,32 @@ sf::Image FluidSpaceImage::getDensityImage(FluidSpace& fs)
     return outputImg;
 }
 
-inline sf::Color FluidSpaceImage::densityToColor(float density)
+inline sf::Color FluidSpaceImage::densityToColor(double density)
 {
     /// takes densities b/w 0 and infinity and returns a color
-    // float g = 16*sqrt(density*25.5);
-    //float g = (255.0*density)/(density+5.0);
-    return sf::Color(0,(int)(255.0*density)/(density+40.0),0,255);
+    // double g = 16*sqrt(density*25.5);
+    //double g = (255.0*density)/(density+5.0);
+    const double maxDisplayedDensity = 1.0005;
+    const double minDisplayedDensity = 0.999;
+    const double neutralDensity = 1.0;
+
+    if (density > maxDisplayedDensity) density = maxDisplayedDensity;
+    if (density < minDisplayedDensity) density = minDisplayedDensity;
+
+    //double colorIndex = density/maxDisplayedDensity;
+
+    double green = (density - neutralDensity)/(maxDisplayedDensity - neutralDensity);
+    double blue = 1.0 - (density - minDisplayedDensity)/(neutralDensity - minDisplayedDensity);
+
+    if (blue < 0.0) blue = 0.0;
+    if (green < 0.0) green = 0.0;
+    if (blue > 1.0) blue = 1.0;
+    if (green > 1.0) green = 1.0;
+
+    green *= 255.0;
+    blue *= 255.0;
+
+    return sf::Color(0,green,blue,255);
 }
 
 

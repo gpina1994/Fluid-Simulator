@@ -23,89 +23,122 @@
            in every direction--this is now fixed.
     0.2.0: Trying to figure out cause of NaN bug. Also, air propagates in an expanding square shape--this needs to be
            fixed.
+    0.3.0: NaN bug fixed by dividing by density + adding a fudge factor. The shape of air propagation is not a
+           problem--it's actually circular. Window can now be resized.
 */
 
+/**
+To do:
+    Add in solid objects (draw mode)
+    Add in pausing/unpausing
+    Possibly change the updateEqDensities() method
+    Add in some sort of "streamer"
+    Fix bug on the west edge
+**/
+
 void handleMouse(const sf::RenderWindow&, FluidSpace& fs);
+void displayFs(FluidSpace& fs, FluidSpaceImage& fsi, sf::RenderWindow& w);
 
 int main()
 {
     /// Initialize objects
-    sf::RenderWindow window(sf::VideoMode(400,400), "SFML works!", sf::Style::Titlebar|sf::Style::Close);
-    FluidSpaceImage fsi(400,400);
-    sf::Image output;
-    sf::Texture outTexture;
-    sf::Sprite outSprite;
-    srand(time(NULL));
-    FluidSpace fs(400,400);
-    sf::Clock clk;
+    const int WINDOW_WIDTH = 900;
+    const int WINDOW_HEIGHT = 900;
+    const int FLUIDSPACE_WIDTH = 300;
+    const int FLUIDSPACE_HEIGHT = 300;
+    sf::RenderWindow window(sf::VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "SFML works!", sf::Style::Default);
+    FluidSpaceImage fsi(FLUIDSPACE_WIDTH, FLUIDSPACE_HEIGHT);
+    FluidSpace fs(FLUIDSPACE_WIDTH, FLUIDSPACE_HEIGHT);
     sf::Clock updateClk;
-    int iterations = 0;
+    bool drawMode = false; // drawmode: draw solid objects to interact with the fluid environment (UNIMPLEMENTED)
+    bool paused = true;
+    bool stepNextFrame = false;
 
     /// "Game loop"
     while (window.isOpen())
     {
-        ++iterations;
         sf::Event event;
-        bool mouseIsPressed = false; // unused
-        bool enterIsPressed = false; // unused
-        bool updateScreen = false;
         while (window.pollEvent(event))
         {
             sf::Vector2i pos; // mouse position
             switch (event.type)
             {
             case sf::Event::Closed:
+            {
                 window.close();
                 break;
+            }
             case sf::Event::MouseButtonPressed:
-                mouseIsPressed = true;
+            {
                 pos = sf::Mouse::getPosition(window);
                 std::cout << "Mouse Button Pressed at " << pos.x << ", " << pos.y << std::endl;
                 break;
+            }
             case sf::Event::MouseButtonReleased:
-                mouseIsPressed = false;
+            {
                 pos = sf::Mouse::getPosition(window);
                 std::cout << "Mouse Button Released at " << pos.x << "," << pos.y << std::endl;
                 break;
+            }
             case sf::Event::KeyPressed:
+            {
                 if (sf::Keyboard::isKeyPressed(sf::Keyboard::Return)) {
-                    std::cout<<"updating"<<std::endl;
-                    updateClk.restart();
-                    fs.update();
-                    std::cout << "updated in " << updateClk.getElapsedTime().asSeconds() << "seconds." << std::endl;
-                    updateScreen = true;
-                    break;
+                    std::cout << "return key pressed" << std::endl;
+                    paused = !paused;
+//                    std::cout<<"updating"<<std::endl;
+//                    updateClk.restart();
+//                    fs.update();
+//                    std::cout << "updated in " << updateClk.getElapsedTime().asSeconds() << "seconds." << std::endl;
+//                    break;
+                }
+                else if(sf::Keyboard::isKeyPressed(sf::Keyboard::Space)) {
+                    stepNextFrame = true;
                 }
                 break;
-            default:
-                break;
             }
-            if (updateScreen) {
-                updateScreen = false;
+            default:
                 break;
             }
         }
 
+        if (!paused)
+        {
+            fs.update();
+        }
+        else if (stepNextFrame)
+        {
+            fs.update();
+            stepNextFrame = false;
+        }
         handleMouse(window, fs);
-
-        //output = fsi.getDensityImage();
-        output = fsi.getDensityImage(fs);
-        outTexture.loadFromImage(output);
-        outSprite.setTexture(outTexture);
-
-        window.clear();
-        window.draw(outSprite);
-        window.display();
+        displayFs(fs, fsi, window);
     }
 
-    std::cout << "Average iterations per second: " <<  (float) iterations/clk.getElapsedTime().asSeconds()
-              << std::endl;
-/*
-    std::cout << "=======Average times=======" << std::endl
-              << "stream(): " << streamTotalTime/streamCallCount << std::endl
-              << "collide(): " << collideTotalTime/collideCallCount << std::endl;
-*/
     return 0;
+}
+
+void displayFs(FluidSpace& fs, FluidSpaceImage& fsi, sf::RenderWindow& w)
+{
+    /**
+    Draws FluidSpace data onto the window
+    **/
+
+    // create sf::Sprite from FluidSpace
+    sf::Sprite outSprite;
+    sf::Texture outTexture;
+    outTexture.loadFromImage(fsi.getDensityImage(fs));
+    outSprite.setTexture(outTexture);
+
+    //scale sprite to screen size
+    sf::Vector2u wSize = w.getSize();
+    double scaleFactorX = wSize.x/(double)fs.getWidth();
+    double scaleFactorY = wSize.y/(double)fs.getHeight();
+    outSprite.setScale(scaleFactorX, scaleFactorY);
+
+    // draw sprite
+    w.clear();
+    w.draw(outSprite);
+    w.display();
 }
 
 void handleMouse(const sf::RenderWindow& w, FluidSpace& fs)
@@ -116,18 +149,21 @@ void handleMouse(const sf::RenderWindow& w, FluidSpace& fs)
     **/
     sf::Vector2i pos = sf::Mouse::getPosition(w);
     sf::Vector2u wSize = w.getSize();
-    //if the mouse button is pressed in the window, draw where it is pressed
-    if (sf::Mouse::isButtonPressed(sf::Mouse::Left)) {
-        if (0 < pos.x && pos.x < wSize.x &&
-            0 < pos.y && pos.y < wSize.y) {
-            // draw
-            fs.incrDensity(pos.x, pos.y);
-        }
-    } else if (sf::Mouse::isButtonPressed(sf::Mouse::Right)) {
-        if (0 < pos.x && pos.x < wSize.x &&
-            0 < pos.y && pos.y < wSize.y) {
-            fs.printLattice(pos.x,pos.y);
-
+    double scaleFactorX = (double)fs.getWidth()/wSize.x;
+    double scaleFactorY = (double)fs.getHeight()/wSize.y;
+    int scaledPosX, scaledPosY;
+    scaledPosX = pos.x*scaleFactorX;
+    scaledPosY = pos.y*scaleFactorY;
+    // first check if mouse is even in the window
+    if (0 < pos.x && pos.x < wSize.x &&
+        0 < pos.y && pos.y < wSize.y) {
+        // left mouse button -> increment density on clicked area
+        if (sf::Mouse::isButtonPressed(sf::Mouse::Left)) {
+            fs.incrDensity(scaledPosX, scaledPosY);
+        // right mouse button -> show lattice info
+        } else if (sf::Mouse::isButtonPressed(sf::Mouse::Right)) {
+            fs.applyWind(scaledPosX, scaledPosY, 0.0);
+            //fs.printLattice(scaledPosX, scaledPosY);
         }
     }
 }
